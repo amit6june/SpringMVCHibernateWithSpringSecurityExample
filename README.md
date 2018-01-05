@@ -1,2 +1,0 @@
-# SpringMVCHibernateWithSpringSecurityExample
-first example
