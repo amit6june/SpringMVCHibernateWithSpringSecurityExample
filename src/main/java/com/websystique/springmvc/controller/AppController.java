@@ -1,5 +1,6 @@
 package com.websystique.springmvc.controller;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Locale;
 
@@ -7,6 +8,12 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.validation.Valid;
 
+import com.braintreegateway.*;
+import com.websystique.springmvc.configuration.BraintreeGatewayFactory;
+import com.websystique.springmvc.converter.RoleToUserProfileConverter;
+import com.websystique.springmvc.model.UserObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.MessageSource;
 import org.springframework.security.authentication.AuthenticationTrustResolver;
@@ -15,27 +22,23 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.web.authentication.rememberme.PersistentTokenBasedRememberMeServices;
 import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
 import org.springframework.ui.ModelMap;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
-import org.springframework.web.bind.annotation.ModelAttribute;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.SessionAttributes;
+import org.springframework.web.bind.annotation.*;
 
 
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.ResponseBody;
 
 import com.websystique.springmvc.model.User;
 import com.websystique.springmvc.model.MyJson;
 import com.websystique.springmvc.model.UserProfile;
 import com.websystique.springmvc.service.UserProfileService;
 import com.websystique.springmvc.service.UserService;
-
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 
 @Controller
@@ -58,6 +61,9 @@ public class AppController {
 	@Autowired
 	AuthenticationTrustResolver authenticationTrustResolver;
 
+	static final Logger logger = LoggerFactory.getLogger(AppController.class);
+
+	public static BraintreeGateway gateway;
 
 	@RequestMapping(value = { "/myjson" }, method = RequestMethod.GET)
 	public @ResponseBody MyJson getShopInJSON() {
@@ -71,13 +77,52 @@ public class AppController {
 	}
 
 
+	@RequestMapping(value = "/checkouts", method = RequestMethod.POST)
+	public String postForm(@RequestParam("amount") String amount, @RequestParam("payment_method_nonce") String nonce, Model model) {
+		BigDecimal decimalAmount;
+		try {
+			decimalAmount = new BigDecimal(amount);
+		} catch (NumberFormatException e) {
+			return "redirect:checkouts";
+		}
+
+		TransactionRequest request = new TransactionRequest()
+				.amount(decimalAmount)
+				.paymentMethodNonce(nonce)
+				.options()
+				.submitForSettlement(true)
+				.done();
+		gateway=BraintreeGatewayFactory.fromConfigMapping(System.getenv());
+
+		Result<Transaction> result = gateway.transaction().sale(request);
+
+		if (result.isSuccess()) {
+			Transaction transaction = result.getTarget();
+			System.out.println("transaction.getId()"+transaction.getId());
+			return "userslist";
+		} else {
+			String errorString = "";
+			for (ValidationError error : result.getErrors().getAllDeepValidationErrors()) {
+				errorString += "Error: " + error.getCode() + ": " + error.getMessage() + "\n";
+			}
+			
+			return "redirect:checkouts";
+		}
+	}
+
 	/**
 	 * This method will list all existing users.
 	 */
 	@RequestMapping(value = { "/", "/list" }, method = RequestMethod.GET)
 	public String listUsers(ModelMap model) {
 
+		System.out.println("Hi there-->>>>");
+		logger.info("I am logger since the eternity");
+
+
 		List<User> users = userService.findAllUsers();
+
+
 		model.addAttribute("users", users);
 		model.addAttribute("loggedinuser", getPrincipal());
 		return "userslist";
